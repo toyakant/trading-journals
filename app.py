@@ -94,6 +94,19 @@ def init_db():
         created_at TEXT
     );
     """)
+    # Safe migration for databases created by older journal versions.
+    existing = {r["name"] for r in c.execute("PRAGMA table_info(trades)").fetchall()}
+    migrations = {
+        "risk_amount": "ALTER TABLE trades ADD COLUMN risk_amount REAL NOT NULL DEFAULT 0",
+        "closing_amount": "ALTER TABLE trades ADD COLUMN closing_amount REAL NOT NULL DEFAULT 0",
+        "pnl": "ALTER TABLE trades ADD COLUMN pnl REAL NOT NULL DEFAULT 0",
+        "r_multiple": "ALTER TABLE trades ADD COLUMN r_multiple REAL NOT NULL DEFAULT 0",
+        "result": "ALTER TABLE trades ADD COLUMN result TEXT NOT NULL DEFAULT 'BE'",
+    }
+    for col, statement in migrations.items():
+        if col not in existing:
+            c.execute(statement)
+
     c.commit()
     c.close()
 
@@ -381,7 +394,7 @@ elif page == "Add Trade":
                         closing_amount,pnl,r_multiple,result,confidence,emotion_before,
                         emotion_during,emotion_after,mistakes,entry_reason,exit_reason,
                         lesson,notes,created_at
-                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     uid,int(account_id),str(trade_date),symbol,direction,timeframe,session,
                     strategy,setup,market,bias,risk,closing_amount,pnl,r,result,
