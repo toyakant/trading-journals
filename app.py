@@ -52,9 +52,8 @@ def init_db():
         market_condition TEXT,
         bias TEXT,
 
-        balance_before REAL NOT NULL,
         risk_amount REAL NOT NULL,
-        closing_balance REAL NOT NULL,
+        closing_amount REAL NOT NULL,
         pnl REAL NOT NULL,
         r_multiple REAL NOT NULL,
         result TEXT NOT NULL,
@@ -139,11 +138,12 @@ def account_stats(account_id):
     balance = row.starting_balance + pnl
     return row, t
 
-def calc_pnl(balance_before, closing_balance, risk):
-    pnl = closing_balance - balance_before
+def calc_pnl(risk, closing_amount):
+    pnl = float(closing_amount)
     r = pnl / risk if risk > 0 else 0
     result = "WIN" if pnl > 0 else ("LOSS" if pnl < 0 else "BE")
     return pnl, r, result
+
 
 accounts = accounts_df()
 trades = trades_df()
@@ -323,13 +323,13 @@ elif page == "Add Trade":
             market = c2.selectbox("Market Condition", ["Trending","Ranging","Volatile","Choppy","Expansion","Reversal"])
             bias = c3.selectbox("Bias", ["Bullish","Bearish","Neutral"])
 
-            st.markdown("### 💰 Balance & Risk")
-            c1,c2,c3 = st.columns(3)
-            balance_before = c1.number_input("Balance Before Trade", min_value=0.0, value=1000.0, step=1.0)
-            risk = c2.number_input("Amount Risked ($)", min_value=0.0, value=20.0, step=1.0)
-            closing = c3.number_input("Closing Balance", min_value=0.0, value=1000.0, step=1.0)
+            st.markdown("### 💰 Risk & Closing Amount")
+            st.caption("Enter only your risk and the signed result of the trade. Positive = profit, 0 = break-even, negative = loss.")
+            c1,c2 = st.columns(2)
+            risk = c1.number_input("Amount Risked ($)", min_value=0.01, value=20.0, step=1.0)
+            closing_amount = c2.number_input("Closing Amount ($)", value=0.0, step=1.0, format="%.2f")
 
-            preview_pnl, preview_r, preview_result = calc_pnl(balance_before, closing, risk)
+            preview_pnl, preview_r, preview_result = calc_pnl(risk, closing_amount)
             c1,c2,c3 = st.columns(3)
             c1.metric("Automatic P&L", money(preview_pnl))
             c2.metric("Automatic R", f"{preview_r:.2f}R")
@@ -369,24 +369,22 @@ elif page == "Add Trade":
         if submitted:
             if risk <= 0:
                 st.error("Risk amount must be greater than $0.")
-            elif closing < 0:
-                st.error("Closing balance cannot be negative.")
             else:
-                pnl, r, result = calc_pnl(balance_before, closing, risk)
+                pnl, r, result = calc_pnl(risk, closing_amount)
                 uid = "TRD-" + datetime.now().strftime("%Y%m%d") + "-" + uuid.uuid4().hex[:6].upper()
                 now = datetime.now().isoformat(timespec="seconds")
 
                 trade_id = execute("""
                     INSERT INTO trades(
                         trade_uid,account_id,trade_date,symbol,direction,timeframe,session,
-                        strategy,setup,market_condition,bias,balance_before,risk_amount,
-                        closing_balance,pnl,r_multiple,result,confidence,emotion_before,
+                        strategy,setup,market_condition,bias,risk_amount,
+                        closing_amount,pnl,r_multiple,result,confidence,emotion_before,
                         emotion_during,emotion_after,mistakes,entry_reason,exit_reason,
                         lesson,notes,created_at
                     ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, (
                     uid,int(account_id),str(trade_date),symbol,direction,timeframe,session,
-                    strategy,setup,market,bias,balance_before,risk,closing,pnl,r,result,
+                    strategy,setup,market,bias,risk,closing_amount,pnl,r,result,
                     confidence,emotion_before,emotion_during,emotion_after,
                     ", ".join(mistakes),entry_reason,exit_reason,lesson,notes,now
                 ))
@@ -438,7 +436,7 @@ elif page == "Trades":
 
         cols = [
             "trade_uid","trade_date","account_name","symbol","direction","session",
-            "strategy","balance_before","risk_amount","closing_balance","pnl","r_multiple","result","mistakes"
+            "strategy","risk_amount","closing_amount","pnl","r_multiple","result","mistakes"
         ]
         st.dataframe(df[cols], use_container_width=True, hide_index=True)
         st.download_button("Export CSV", df.to_csv(index=False).encode(), "trading_journal.csv", "text/csv")
@@ -454,7 +452,7 @@ elif page == "Trades":
             c1.metric("P&L", money(row.pnl))
             c2.metric("R", f"{row.r_multiple:.2f}R")
             c3.metric("Risk", money(row.risk_amount))
-            c4.metric("Balance After", money(row.closing_balance))
+            c4.metric("Closing Amount", money(row.closing_amount))
             c5.metric("Result", row.result)
 
             st.write(
