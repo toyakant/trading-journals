@@ -15,6 +15,18 @@ IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 st.set_page_config(page_title="Trading Journal", page_icon="📈", layout="wide")
 
+st.markdown("""<style>
+.stApp{background:#0a0d12}.block-container{max-width:1450px;padding-top:2rem}
+section[data-testid="stSidebar"]{background:#0d1117;border-right:1px solid #27303d}
+div[data-testid="stMetric"]{background:linear-gradient(145deg,#121821,#0f141c);border:1px solid #27303d;padding:16px;border-radius:14px}
+div[data-testid="stForm"],div[data-testid="stExpander"]{background:#0f141b;border:1px solid #27303d;border-radius:14px}
+.stButton>button,.stDownloadButton>button{border-radius:10px;font-weight:650}
+.calendar-day{min-height:105px;border:1px solid #27303d;border-radius:12px;padding:10px;margin-bottom:8px;background:#11161e}
+.calendar-profit{border-color:#24583d;background:linear-gradient(145deg,#101b17,#11161e)}
+.calendar-loss{border-color:#633338;background:linear-gradient(145deg,#1c1215,#11161e)}
+.calendar-empty{opacity:.6}.small-muted{color:#8b96a8;font-size:.82rem}
+</style>""",unsafe_allow_html=True)
+
 def db():
     c = sqlite3.connect(DB)
     c.row_factory = sqlite3.Row
@@ -120,6 +132,17 @@ def execute(sql, params=()):
     c.close()
     return last
 
+def delete_trade(trade_id):
+    c=db()
+    rows=c.execute("SELECT path FROM images WHERE trade_id=?",(trade_id,)).fetchall()
+    for r in rows:
+        try:
+            if r["path"] and os.path.exists(r["path"]): os.remove(r["path"])
+        except OSError: pass
+    c.execute("DELETE FROM images WHERE trade_id=?",(trade_id,))
+    c.execute("DELETE FROM trades WHERE id=?",(trade_id,))
+    c.commit(); c.close()
+
 def query(sql, params=()):
     c = db()
     rows = c.execute(sql, params).fetchall()
@@ -161,7 +184,8 @@ def calc_pnl(risk, closing_amount):
 accounts = accounts_df()
 trades = trades_df()
 
-st.title("📈 Trading Journal")
+st.title("Trading Journal")
+st.caption("Professional trade tracking • performance • execution • review")
 st.caption("Balance-based journaling: enter what you risked and your closing balance. P&L and R are calculated automatically.")
 
 with st.sidebar:
@@ -281,12 +305,10 @@ elif page == "Calendar":
                             d = daily.loc[day_num]
                             p = float(d.pnl)
                             icon = "🟢" if p > 0 else ("🔴" if p < 0 else "⚪")
-                            st.markdown(f"### {day_num} {icon}")
-                            st.write(money(p))
-                            st.caption(f"{int(d.trades)} trade(s)")
+                            cls = "calendar-profit" if p > 0 else ("calendar-loss" if p < 0 else "calendar-day")
+                            st.markdown(f'<div class="calendar-day {cls}"><b>{day_num} {icon}</b><div style="font-size:1.05rem;margin-top:10px;font-weight:750;">{money(p)}</div><div class="small-muted">{int(d.trades)} trade(s) • {int(d.wins)}W / {int(d.losses)}L</div></div>', unsafe_allow_html=True)
                         else:
-                            st.markdown(f"### {day_num}")
-                            st.caption("No trades")
+                            st.markdown(f'<div class="calendar-day calendar-empty"><b>{day_num}</b><div class="small-muted" style="margin-top:12px;">No trades</div></div>', unsafe_allow_html=True)
 
         st.divider()
         st.markdown("### Selected Month Summary")
@@ -451,6 +473,11 @@ elif page == "Trades":
             "trade_uid","trade_date","account_name","symbol","direction","session",
             "strategy","risk_amount","closing_amount","pnl","r_multiple","result","mistakes"
         ]
+        q1,q2,q3,q4=st.columns(4)
+        q1.metric("Filtered P&L",money(df.pnl.sum()))
+        q2.metric("Trades",len(df))
+        q3.metric("Win Rate",f"{(df.result=="WIN").mean()*100:.1f}%")
+        q4.metric("Avg R",f"{df.r_multiple.mean():.2f}R")
         st.dataframe(df[cols], use_container_width=True, hide_index=True)
         st.download_button("Export CSV", df.to_csv(index=False).encode(), "trading_journal.csv", "text/csv")
 
@@ -493,6 +520,16 @@ elif page == "Trades":
                     with columns[i % len(columns)]:
                         if os.path.exists(im.path):
                             st.image(im.path, caption=f"{im.image_type} — {im.caption or ''}", use_container_width=True)
+
+            st.divider()
+            st.markdown("### ⚙️ Trade Actions")
+            with st.expander("Danger Zone"):
+                st.warning("Deleting a trade permanently removes the trade and its attached screenshots.")
+                confirm = st.checkbox("I understand this cannot be undone.", key=f"confirm_delete_{int(row.id)}")
+                if st.button("🗑️ Delete Trade", key=f"delete_{int(row.id)}", disabled=not confirm):
+                    delete_trade(int(row.id))
+                    st.success(f"{uid} deleted.")
+                    st.rerun()
 
 # ================= ACCOUNTS =================
 elif page == "Accounts":
